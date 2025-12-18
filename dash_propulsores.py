@@ -20,10 +20,8 @@ st.markdown("""
 # --- CABEÇALHO ---
 col_logo, col_titulo = st.columns([1, 5])
 with col_logo:
-    try:
-        st.image("logo_asaas.png", width=150)
-    except:
-        st.write("💙 Asaas")
+    # Link direto de um logo transparente
+    st.image("https://logospng.org/download/asaas/logo-asaas-4096.png", width=150)
 with col_titulo:
     st.title("🚀 Eficiência de Parceiros")
 
@@ -188,7 +186,8 @@ def criar_resumo(df, coluna, nome_index):
     resumo = temp.value_counts().reset_index()
     resumo.columns = [nome_index, "Qtd"]
     total_loc = resumo["Qtd"].sum()
-    resumo["%"] = (resumo["Qtd"] / total_loc) if total_loc > 0 else 0
+    # CORREÇÃO: Multiplica por 100 para virar porcentagem de verdade (41.5 em vez de 0.4)
+    resumo["%"] = (resumo["Qtd"] / total_loc * 100) if total_loc > 0 else 0
     return resumo
 
 col_t1, col_t2 = st.columns(2)
@@ -197,13 +196,15 @@ with col_t1:
     st.write("**Volume por Tipo de Empresa**")
     if col_empresa in tabela_filtrada.columns:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
-        st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
+        # CORREÇÃO: max_value ajustado para 100
+        st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
 
 with col_t2:
     st.write("**Ranking de Divergências**")
     if col_divergencia in tabela_filtrada.columns:
         df_div = criar_resumo(tabela_filtrada, col_divergencia, "Motivo")
-        st.dataframe(df_div, column_config={"%": st.column_config.ProgressColumn("Impacto", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
+        # CORREÇÃO: max_value ajustado para 100
+        st.dataframe(df_div, column_config={"%": st.column_config.ProgressColumn("Impacto", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
 
 st.markdown("---")
 
