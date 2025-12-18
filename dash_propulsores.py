@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
@@ -30,16 +29,20 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- PASSO 1: CARREGAR DADOS ---
+# --- PASSO 1: CARREGAR DADOS (MÉTODO CSV - SEM AUTENTICAÇÃO) ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df1 = conn.read(spreadsheet=url_planilha_1)
-        df2 = conn.read(spreadsheet=url_planilha_2)
+        # TRUQUE: Transforma o link de visualização em link de exportação CSV
+        csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
+        csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
+        
+        # Lê direto com o Pandas (Pula a autenticação complexa)
+        df1 = pd.read_csv(csv_url_1)
+        df2 = pd.read_csv(csv_url_2)
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         tabela_final.columns = tabela_final.columns.str.strip()
@@ -53,7 +56,7 @@ def carregar_dados_online():
             
         return tabela_final
     except Exception as e:
-        st.error(f"Erro na conexão Google Sheets: {e}")
+        st.error(f"Erro ao ler planilhas. Verifique se estão compartilhadas como 'Qualquer pessoa com o link'. Detalhe: {e}")
         return None
 
 tabela = carregar_dados_online()
@@ -115,33 +118,28 @@ else:
 
 st.sidebar.subheader("Categorias")
 
-# 1. Filtro Parceiro
+# Filtros
 if col_parceiro in tabela.columns:
     opcoes_parceiro = sorted(tabela[col_parceiro].dropna().astype(str).unique())
     parceiro_sel = st.sidebar.multiselect("Parceiro (ID)", options=opcoes_parceiro)
 else:
     parceiro_sel = []
 
-# 2. Filtro Documento
 if col_documento in tabela.columns:
     opcoes_doc = sorted(tabela[col_documento].dropna().astype(str).unique())
     doc_sel = st.sidebar.multiselect("Tipo de Documento", options=opcoes_doc)
 else:
     doc_sel = []
 
-# 3. NOVO FILTRO: Tipo de Divergência
 if col_divergencia in tabela.columns:
-    # Pega valores únicos
     raw_options = tabela[col_divergencia].dropna().astype(str).unique()
-    # Remove lixo e "Não informado" para o filtro ficar limpo
     ignorar_filtro = ["", "nan", "None", "Não informado", "None", "NaT", "<NA>"]
     opcoes_divergencia = sorted([x for x in raw_options if x not in ignorar_filtro])
-    
     divergencia_sel = st.sidebar.multiselect("Tipo de Divergência", options=opcoes_divergencia)
 else:
     divergencia_sel = []
 
-# --- APLICAÇÃO DOS FILTROS ---
+# Aplica Filtros
 if parceiro_sel:
     tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro].astype(str).isin(parceiro_sel)]
 
