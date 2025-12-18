@@ -20,8 +20,8 @@ st.markdown("""
 # --- CABEÇALHO ---
 col_logo, col_titulo = st.columns([1, 5])
 with col_logo:
-    # Link direto de um logo transparente
-    st.image("https://logospng.org/download/asaas/logo-asaas-4096.png", width=150)
+    # Como o arquivo está no GitHub, basta colocar o nome exato dele
+    st.image("logo_asaas.png", width=150)
 with col_titulo:
     st.title("🚀 Eficiência de Parceiros")
 
@@ -288,3 +288,4 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
+
