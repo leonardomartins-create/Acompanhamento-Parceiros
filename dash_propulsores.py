@@ -5,6 +5,40 @@ import plotly.express as px
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
+# --- BLOCO DE AUTENTICAÇÃO (O PORTEIRO) ---
+def check_password():
+    """Retorna `True` se o usuário tiver a senha correta."""
+
+    def password_entered():
+        """Checa se a senha inserida bate com a dos Segredos."""
+        if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Não armazena a senha
+        else:
+            st.session_state["password_correct"] = False
+
+    # Se a senha já foi validada, retorna True
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Se não, mostra o campo de input
+    st.markdown("### 🔒 Acesso Restrito - Diretoria")
+    st.text_input(
+        "Digite a senha de acesso:", type="password", on_change=password_entered, key="password"
+    )
+    
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("😕 Senha incorreta")
+
+    return False
+
+if not check_password():
+    st.stop()  # PARA TUDO AQUI SE NÃO TIVER LOGADO
+
+# =========================================================
+# DAQUI PRA BAIXO É O SEU DASHBOARD NORMAL (SÓ CARREGA SE LOGAR)
+# =========================================================
+
 # Estilos CSS (Visual Clean)
 st.markdown("""
     <style>
@@ -288,5 +322,6 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
+
 
 
