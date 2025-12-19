@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import hmac  # <--- ADICIONE ESTA LINHA
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
@@ -322,6 +323,7 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
+
 
 
 
