@@ -63,7 +63,7 @@ if tabela is None:
     st.stop()
 
 # --- PASSO 2: NOMES DAS COLUNAS ---
-col_empresa = "Tempo de Análise"
+col_empresa = "Tipo de Empresa"
 col_documento = "Tipo de Documento"
 col_parceiro = "ID Conta Principal"
 col_status = "Análise"
@@ -288,4 +288,5 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
+
 
