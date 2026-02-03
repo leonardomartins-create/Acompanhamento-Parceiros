@@ -66,6 +66,7 @@ def carregar_dados_online():
         df2 = pd.read_csv(csv_url_2)
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
+        # Limpeza: remove espaços no começo/fim dos nomes das colunas
         tabela_final.columns = tabela_final.columns.str.strip()
         
         col_data = "Data Criação"
@@ -85,11 +86,11 @@ tabela = carregar_dados_online()
 if tabela is None:
     st.stop()
 
-# --- PASSO 2: NOMES DAS COLUNAS ---
-col_empresa = "Tipo de Pessoa"
-col_documento = "Tipo de Documento"
-col_parceiro_id = "ID Conta Principal" # Mantive o ID
-col_parceiro_nome = "Parceiro"         # ADICIONADO: Coluna com o nome (Jumio/CAF)
+# --- PASSO 2: NOMES DAS COLUNAS (CONFIGURAÇÃO OFICIAL) ---
+col_empresa = "Tipo de Pessoa"       # Usado nos Gráficos (Física, MEI...)
+col_documento = "Tipo de Documento"  # CNH, RG...
+col_parceiro_id = "ID Conta Principal" # ID Numérico da conta
+col_parceiro_nome = "Nome Parceiro"    # <--- AQUI ESTAVA O SEGREDO (Jumio/CAF)
 col_status = "Análise"
 col_divergencia = "Divergências"
 
@@ -135,31 +136,31 @@ if not datas_validas.empty:
         
     except Exception as e:
         st.sidebar.warning(f"Erro no calendário: {e}")
-else:
-    st.sidebar.info("📅 Filtro de data indisponível.")
 
 st.sidebar.subheader("Categorias")
 
-# 1. Filtro de Fornecedor (Jumio/CAF) - NOVO!
+# 1. Filtro de Fornecedor (Jumio/CAF)
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
+    if parceiro_nome_sel:
+        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_nome].astype(str).isin(parceiro_nome_sel)]
 else:
-    parceiro_nome_sel = []
+    st.sidebar.warning(f"⚠️ Coluna '{col_parceiro_nome}' não encontrada. Verifique o nome na planilha.")
 
 # 2. Filtro de Tipo de Documento
 if col_documento in tabela.columns:
     opcoes_doc = sorted(tabela[col_documento].dropna().astype(str).unique())
     doc_sel = st.sidebar.multiselect("Tipo de Documento", options=opcoes_doc)
-else:
-    doc_sel = []
+    if doc_sel:
+        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_documento].isin(doc_sel)]
 
-# 3. Filtro de ID (Caso precisem buscar um número específico)
+# 3. Filtro de ID
 if col_parceiro_id in tabela.columns:
     opcoes_id = sorted(tabela[col_parceiro_id].dropna().astype(str).unique())
     parceiro_id_sel = st.sidebar.multiselect("ID da Conta", options=opcoes_id)
-else:
-    parceiro_id_sel = []
+    if parceiro_id_sel:
+        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_id].astype(str).isin(parceiro_id_sel)]
 
 # 4. Filtro de Divergência
 if col_divergencia in tabela.columns:
@@ -167,21 +168,8 @@ if col_divergencia in tabela.columns:
     ignorar_filtro = ["", "nan", "None", "Não informado", "None", "NaT", "<NA>"]
     opcoes_divergencia = sorted([x for x in raw_options if x not in ignorar_filtro])
     divergencia_sel = st.sidebar.multiselect("Tipo de Divergência", options=opcoes_divergencia)
-else:
-    divergencia_sel = []
-
-# Aplica Filtros
-if parceiro_nome_sel:
-    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_nome].astype(str).isin(parceiro_nome_sel)]
-
-if doc_sel:
-    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_documento].isin(doc_sel)]
-
-if parceiro_id_sel:
-    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_id].astype(str).isin(parceiro_id_sel)]
-
-if divergencia_sel:
-    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).isin(divergencia_sel)]
+    if divergencia_sel:
+        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).isin(divergencia_sel)]
 
 st.sidebar.markdown("---")
 csv = tabela_filtrada.to_csv(index=False).encode('utf-8')
@@ -232,6 +220,8 @@ with col_t1:
     if col_empresa in tabela_filtrada.columns:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
         st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
+    else:
+        st.warning(f"⚠️ Gráfico não gerado. Coluna '{col_empresa}' não encontrada na planilha.")
 
 with col_t2:
     st.write("**Ranking de Divergências**")
@@ -270,6 +260,8 @@ with g1:
         df_pizza.columns = ['Tipo', 'Qtd']
         fig_pizza = px.pie(df_pizza, values='Qtd', names='Tipo', hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
         st.plotly_chart(fig_pizza, use_container_width=True)
+    elif col_empresa not in tabela_filtrada.columns:
+        st.info("Aguardando confirmação do nome da coluna 'Tipo de Pessoa'...")
 
 with g2:
     st.write("**Top Divergências**")
