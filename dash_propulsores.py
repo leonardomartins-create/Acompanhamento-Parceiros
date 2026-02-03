@@ -1,46 +1,34 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import hmac  # <--- ADICIONE ESTA LINHA
+import hmac
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
-# --- BLOCO DE AUTENTICAÇÃO (O PORTEIRO) ---
+# --- BLOCO DE AUTENTICAÇÃO ---
 def check_password():
-    """Retorna `True` se o usuário tiver a senha correta."""
-
     def password_entered():
-        """Checa se a senha inserida bate com a dos Segredos."""
         if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Não armazena a senha
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
-    # Se a senha já foi validada, retorna True
     if st.session_state.get("password_correct", False):
         return True
 
-    # Se não, mostra o campo de input
     st.markdown("### 🔒 Acesso Restrito - Diretoria")
-    st.text_input(
-        "Digite a senha de acesso:", type="password", on_change=password_entered, key="password"
-    )
+    st.text_input("Digite a senha de acesso:", type="password", on_change=password_entered, key="password")
     
     if "password_correct" in st.session_state and not st.session_state["password_correct"]:
         st.error("😕 Senha incorreta")
-
     return False
 
 if not check_password():
-    st.stop()  # PARA TUDO AQUI SE NÃO TIVER LOGADO
+    st.stop()
 
-# =========================================================
-# DAQUI PRA BAIXO É O SEU DASHBOARD NORMAL (SÓ CARREGA SE LOGAR)
-# =========================================================
-
-# Estilos CSS (Visual Clean)
+# Estilos CSS
 st.markdown("""
     <style>
     [data-testid="stMetricLabel"] { color: #0051CC !important; font-weight: bold !important; }
@@ -55,25 +43,25 @@ st.markdown("""
 # --- CABEÇALHO ---
 col_logo, col_titulo = st.columns([1, 5])
 with col_logo:
-    # Como o arquivo está no GitHub, basta colocar o nome exato dele
-    st.image("logo_asaas.png", width=150)
+    try:
+        st.image("logo_asaas.png", width=150)
+    except:
+        st.write("💙 Asaas")
 with col_titulo:
     st.title("🚀 Eficiência de Parceiros")
 
 st.markdown("---")
 
-# --- PASSO 1: CARREGAR DADOS (MÉTODO CSV - SEM AUTENTICAÇÃO) ---
+# --- PASSO 1: CARREGAR DADOS ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     try:
-        # TRUQUE: Transforma o link de visualização em link de exportação CSV
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
         csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
         
-        # Lê direto com o Pandas (Pula a autenticação complexa)
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
@@ -89,7 +77,7 @@ def carregar_dados_online():
             
         return tabela_final
     except Exception as e:
-        st.error(f"Erro ao ler planilhas. Verifique se estão compartilhadas como 'Qualquer pessoa com o link'. Detalhe: {e}")
+        st.error(f"Erro ao ler planilhas: {e}")
         return None
 
 tabela = carregar_dados_online()
@@ -98,9 +86,10 @@ if tabela is None:
     st.stop()
 
 # --- PASSO 2: NOMES DAS COLUNAS ---
-col_empresa = "Tipo de Empresa"
+col_empresa = "Tipo de Pessoa"
 col_documento = "Tipo de Documento"
-col_parceiro = "ID Conta Principal"
+col_parceiro_id = "ID Conta Principal" # Mantive o ID
+col_parceiro_nome = "Parceiro"         # ADICIONADO: Coluna com o nome (Jumio/CAF)
 col_status = "Análise"
 col_divergencia = "Divergências"
 
@@ -151,19 +140,28 @@ else:
 
 st.sidebar.subheader("Categorias")
 
-# Filtros
-if col_parceiro in tabela.columns:
-    opcoes_parceiro = sorted(tabela[col_parceiro].dropna().astype(str).unique())
-    parceiro_sel = st.sidebar.multiselect("Parceiro (ID)", options=opcoes_parceiro)
+# 1. Filtro de Fornecedor (Jumio/CAF) - NOVO!
+if col_parceiro_nome in tabela.columns:
+    opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
+    parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
 else:
-    parceiro_sel = []
+    parceiro_nome_sel = []
 
+# 2. Filtro de Tipo de Documento
 if col_documento in tabela.columns:
     opcoes_doc = sorted(tabela[col_documento].dropna().astype(str).unique())
     doc_sel = st.sidebar.multiselect("Tipo de Documento", options=opcoes_doc)
 else:
     doc_sel = []
 
+# 3. Filtro de ID (Caso precisem buscar um número específico)
+if col_parceiro_id in tabela.columns:
+    opcoes_id = sorted(tabela[col_parceiro_id].dropna().astype(str).unique())
+    parceiro_id_sel = st.sidebar.multiselect("ID da Conta", options=opcoes_id)
+else:
+    parceiro_id_sel = []
+
+# 4. Filtro de Divergência
 if col_divergencia in tabela.columns:
     raw_options = tabela[col_divergencia].dropna().astype(str).unique()
     ignorar_filtro = ["", "nan", "None", "Não informado", "None", "NaT", "<NA>"]
@@ -173,11 +171,14 @@ else:
     divergencia_sel = []
 
 # Aplica Filtros
-if parceiro_sel:
-    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro].astype(str).isin(parceiro_sel)]
+if parceiro_nome_sel:
+    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_nome].astype(str).isin(parceiro_nome_sel)]
 
 if doc_sel:
     tabela_filtrada = tabela_filtrada[tabela_filtrada[col_documento].isin(doc_sel)]
+
+if parceiro_id_sel:
+    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_id].astype(str).isin(parceiro_id_sel)]
 
 if divergencia_sel:
     tabela_filtrada = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).isin(divergencia_sel)]
@@ -221,7 +222,6 @@ def criar_resumo(df, coluna, nome_index):
     resumo = temp.value_counts().reset_index()
     resumo.columns = [nome_index, "Qtd"]
     total_loc = resumo["Qtd"].sum()
-    # CORREÇÃO: Multiplica por 100 para virar porcentagem de verdade (41.5 em vez de 0.4)
     resumo["%"] = (resumo["Qtd"] / total_loc * 100) if total_loc > 0 else 0
     return resumo
 
@@ -231,14 +231,12 @@ with col_t1:
     st.write("**Volume por Tipo de Empresa**")
     if col_empresa in tabela_filtrada.columns:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
-        # CORREÇÃO: max_value ajustado para 100
         st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
 
 with col_t2:
     st.write("**Ranking de Divergências**")
     if col_divergencia in tabela_filtrada.columns:
         df_div = criar_resumo(tabela_filtrada, col_divergencia, "Motivo")
-        # CORREÇÃO: max_value ajustado para 100
         st.dataframe(df_div, column_config={"%": st.column_config.ProgressColumn("Impacto", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
 
 st.markdown("---")
@@ -274,7 +272,7 @@ with g1:
         st.plotly_chart(fig_pizza, use_container_width=True)
 
 with g2:
-    st.write("**Top Divergências (Passe o mouse para detalhes)**")
+    st.write("**Top Divergências**")
     if col_divergencia in tabela_filtrada.columns and not tabela_filtrada.empty:
         df_div_graph = tabela_filtrada[col_divergencia].fillna("").astype(str)
         ignorar_grafico = ["", "nan", "None", "Não informado", "None"]
@@ -290,23 +288,11 @@ with g2:
         if not df_top10.empty:
             fig_barras = px.bar(
                 df_top10, 
-                x='Qtd', 
-                y='Motivo', 
-                orientation='h',
-                color_discrete_sequence=['#FF4B4B'],
-                custom_data=['Porcentagem'] 
+                x='Qtd', y='Motivo', orientation='h',
+                color_discrete_sequence=['#FF4B4B'], custom_data=['Porcentagem'] 
             )
-            
-            fig_barras.update_traces(
-                hovertemplate="<b>%{y}</b><br>Quantidade: %{x}<br>Impacto: %{customdata[0]}<extra></extra>"
-            )
-            
-            fig_barras.update_layout(
-                yaxis={'categoryorder':'total ascending'}, 
-                plot_bgcolor="white", 
-                xaxis_title="Quantidade",
-                height=450
-            )
+            fig_barras.update_traces(hovertemplate="<b>%{y}</b><br>Qtd: %{x}<br>Impacto: %{customdata[0]}<extra></extra>")
+            fig_barras.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white", height=450)
             st.plotly_chart(fig_barras, use_container_width=True)
         else:
             st.info("Nenhuma divergência encontrada.")
@@ -323,7 +309,3 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
-
-
-
-
