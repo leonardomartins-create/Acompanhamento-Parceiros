@@ -6,7 +6,7 @@ import hmac
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
-# --- BLOCO DE AUTENTICAÇÃO ---
+# --- BLOCO DE AUTENTICAÇÃO (MANTENDO A SEGURANÇA) ---
 def check_password():
     def password_entered():
         if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
@@ -52,13 +52,14 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- PASSO 1: CARREGAR DADOS ---
+# --- PASSO 1: CARREGAR DADOS (MÉTODO CSV ANTI-ERRO 401) ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     try:
+        # Transforma link de visualização em link de CSV
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
         csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
         
@@ -66,7 +67,7 @@ def carregar_dados_online():
         df2 = pd.read_csv(csv_url_2)
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
-        # Limpeza: remove espaços no começo/fim dos nomes das colunas
+        # Limpeza vital: remove espaços extras dos nomes das colunas
         tabela_final.columns = tabela_final.columns.str.strip()
         
         col_data = "Data Criação"
@@ -86,17 +87,17 @@ tabela = carregar_dados_online()
 if tabela is None:
     st.stop()
 
-# --- PASSO 2: NOMES DAS COLUNAS (CONFIGURAÇÃO OFICIAL) ---
-col_empresa = "Tipo de Pessoa"       # Usado nos Gráficos (Física, MEI...)
-col_documento = "Tipo de Documento"  # CNH, RG...
-col_parceiro_id = "ID Conta Principal" # ID Numérico da conta
-col_parceiro_nome = "Nome Parceiro"    # <--- AQUI ESTAVA O SEGREDO (Jumio/CAF)
-col_status = "Análise"
-col_divergencia = "Divergências"
+# --- PASSO 2: MAPEAMENTO DE COLUNAS (BASEADO NA SUA FOTO) ---
+col_parceiro_nome = "Nome Parceiro"    # Coluna I da sua foto
+col_parceiro_id = "ID Cliente"         # Coluna H da sua foto
+col_documento = "Tipo de Documento"    # Coluna E da sua foto
+col_status = "Análise"                 # Coluna D da sua foto
+col_divergencia = "Divergências"       # Coluna F da sua foto
 
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
+# Filtro de Data
 if "Filtro_Data" in tabela.columns:
     datas_reais = tabela["Filtro_Data"].dropna()
     if not datas_reais.empty:
@@ -131,38 +132,27 @@ if not datas_validas.empty:
                 (tabela_filtrada["Filtro_Data"] >= data_inicial) & 
                 (tabela_filtrada["Filtro_Data"] <= data_final)
             )
-            
         tabela_filtrada = tabela_filtrada.loc[mask_data]
-        
     except Exception as e:
         st.sidebar.warning(f"Erro no calendário: {e}")
 
 st.sidebar.subheader("Categorias")
 
-# 1. Filtro de Fornecedor (Jumio/CAF)
+# 1. Filtro: Parceiro (Nome - Jumio/CAF)
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
     if parceiro_nome_sel:
         tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_nome].astype(str).isin(parceiro_nome_sel)]
-else:
-    st.sidebar.warning(f"⚠️ Coluna '{col_parceiro_nome}' não encontrada. Verifique o nome na planilha.")
 
-# 2. Filtro de Tipo de Documento
+# 2. Filtro: Tipo de Documento
 if col_documento in tabela.columns:
     opcoes_doc = sorted(tabela[col_documento].dropna().astype(str).unique())
     doc_sel = st.sidebar.multiselect("Tipo de Documento", options=opcoes_doc)
     if doc_sel:
         tabela_filtrada = tabela_filtrada[tabela_filtrada[col_documento].isin(doc_sel)]
 
-# 3. Filtro de ID
-if col_parceiro_id in tabela.columns:
-    opcoes_id = sorted(tabela[col_parceiro_id].dropna().astype(str).unique())
-    parceiro_id_sel = st.sidebar.multiselect("ID da Conta", options=opcoes_id)
-    if parceiro_id_sel:
-        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_id].astype(str).isin(parceiro_id_sel)]
-
-# 4. Filtro de Divergência
+# 3. Filtro: Divergências
 if col_divergencia in tabela.columns:
     raw_options = tabela[col_divergencia].dropna().astype(str).unique()
     ignorar_filtro = ["", "nan", "None", "Não informado", "None", "NaT", "<NA>"]
@@ -183,11 +173,13 @@ perc_adulterado = 0
 assertividade = 0
 
 if col_status in tabela.columns:
+    # Ajuste: Conta tudo que NÃO for Confere ou Aprovado como divergência
     divergencias = tabela_filtrada[~tabela_filtrada[col_status].isin(["Confere", "Aprovado"])].shape[0]
     if total > 0: assertividade = ((total - divergencias) / total) * 100
 
 if col_divergencia in tabela.columns:
-    qtd_adulterado = tabela_filtrada[tabela_filtrada[col_divergencia] == "Documento adulterado"].shape[0]
+    # Procura texto parcial "adulterado" para ser mais abrangente
+    qtd_adulterado = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).str.contains("adulterado", case=False, na=False)].shape[0]
     if divergencias > 0: perc_adulterado = (qtd_adulterado / divergencias) * 100
 
 c1, c2, c3, c4 = st.columns(4)
@@ -198,9 +190,10 @@ c4.metric("🚨 Doc. Adulterados", qtd_adulterado, help=f"{perc_adulterado:.1f}%
 
 st.markdown("---")
 
-# --- PASSO 5: TABELAS ---
-st.subheader("📋 Resumo Analítico")
+# --- PASSO 5: GRÁFICOS E TABELAS ---
+st.subheader("📊 Visualização Gráfica")
 
+# Função auxiliar para criar tabelas de resumo
 def criar_resumo(df, coluna, nome_index):
     if coluna not in df.columns: return pd.DataFrame()
     temp = df[coluna].dropna().astype(str)
@@ -213,26 +206,51 @@ def criar_resumo(df, coluna, nome_index):
     resumo["%"] = (resumo["Qtd"] / total_loc * 100) if total_loc > 0 else 0
     return resumo
 
-col_t1, col_t2 = st.columns(2)
+g1, g2 = st.columns(2)
 
-with col_t1:
-    st.write("**Volume por Tipo de Empresa**")
-    if col_empresa in tabela_filtrada.columns:
-        df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
-        st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
+with g1:
+    # 1. Gráfico de Pizza (Volume por Parceiro)
+    st.write("**Volume por Parceiro (Share)**")
+    if col_parceiro_nome in tabela_filtrada.columns and not tabela_filtrada.empty:
+        df_pizza = tabela_filtrada[col_parceiro_nome].value_counts().reset_index()
+        df_pizza.columns = ['Parceiro', 'Qtd']
+        fig_pizza = px.pie(df_pizza, values='Qtd', names='Parceiro', hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
+        st.plotly_chart(fig_pizza, use_container_width=True)
+        
+        # Tabela logo abaixo do gráfico
+        df_parc_table = criar_resumo(tabela_filtrada, col_parceiro_nome, "Parceiro")
+        st.dataframe(df_parc_table, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
     else:
-        st.warning(f"⚠️ Gráfico não gerado. Coluna '{col_empresa}' não encontrada na planilha.")
+        st.warning(f"Coluna '{col_parceiro_nome}' não encontrada.")
 
-with col_t2:
-    st.write("**Ranking de Divergências**")
-    if col_divergencia in tabela_filtrada.columns:
-        df_div = criar_resumo(tabela_filtrada, col_divergencia, "Motivo")
-        st.dataframe(df_div, column_config={"%": st.column_config.ProgressColumn("Impacto", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
+with g2:
+    # 2. Gráfico de Barras (Top Divergências)
+    st.write("**Top Divergências**")
+    if col_divergencia in tabela_filtrada.columns and not tabela_filtrada.empty:
+        df_div_graph = tabela_filtrada[col_divergencia].fillna("").astype(str)
+        ignorar_grafico = ["", "nan", "None", "Não informado", "None"]
+        df_div_graph = df_div_graph[~df_div_graph.isin(ignorar_grafico)]
+        
+        df_counts = df_div_graph.value_counts().reset_index()
+        df_counts.columns = ['Motivo', 'Qtd']
+        
+        df_top10 = df_counts.head(10).copy()
+        total_divergencias_loc = df_counts['Qtd'].sum()
+        df_top10['Porcentagem'] = (df_top10['Qtd'] / total_divergencias_loc * 100).round(1).astype(str) + '%'
+        
+        if not df_top10.empty:
+            fig_barras = px.bar(
+                df_top10, 
+                x='Qtd', y='Motivo', orientation='h',
+                color_discrete_sequence=['#FF4B4B'], custom_data=['Porcentagem'] 
+            )
+            fig_barras.update_traces(hovertemplate="<b>%{y}</b><br>Qtd: %{x}<br>Impacto: %{customdata[0]}<extra></extra>")
+            fig_barras.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white", height=450)
+            st.plotly_chart(fig_barras, use_container_width=True)
+        else:
+            st.info("Nenhuma divergência encontrada.")
 
 st.markdown("---")
-
-# --- PASSO 6: GRÁFICOS ---
-st.subheader("📊 Visualização Gráfica")
 
 st.write("**Evolução Diária**")
 if "Filtro_Data" in tabela_filtrada.columns and col_status in tabela_filtrada.columns and not tabela_filtrada.empty:
@@ -249,47 +267,6 @@ if "Filtro_Data" in tabela_filtrada.columns and col_status in tabela_filtrada.co
         )
         fig_evolucao.update_layout(xaxis_title="Data", yaxis_title="Docs", plot_bgcolor="white", height=350)
         st.plotly_chart(fig_evolucao, use_container_width=True)
-    else:
-        st.info("Sem dados com data válida para o gráfico.")
-
-g1, g2 = st.columns(2)
-with g1:
-    st.write("**Distribuição Visual (Tipos)**")
-    if col_empresa in tabela_filtrada.columns and not tabela_filtrada.empty:
-        df_pizza = tabela_filtrada[col_empresa].value_counts().reset_index()
-        df_pizza.columns = ['Tipo', 'Qtd']
-        fig_pizza = px.pie(df_pizza, values='Qtd', names='Tipo', hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
-        st.plotly_chart(fig_pizza, use_container_width=True)
-    elif col_empresa not in tabela_filtrada.columns:
-        st.info("Aguardando confirmação do nome da coluna 'Tipo de Pessoa'...")
-
-with g2:
-    st.write("**Top Divergências**")
-    if col_divergencia in tabela_filtrada.columns and not tabela_filtrada.empty:
-        df_div_graph = tabela_filtrada[col_divergencia].fillna("").astype(str)
-        ignorar_grafico = ["", "nan", "None", "Não informado", "None"]
-        df_div_graph = df_div_graph[~df_div_graph.isin(ignorar_grafico)]
-        
-        df_counts = df_div_graph.value_counts().reset_index()
-        df_counts.columns = ['Motivo', 'Qtd']
-        
-        df_top10 = df_counts.head(10).copy()
-        total_divergencias = df_counts['Qtd'].sum()
-        df_top10['Porcentagem'] = (df_top10['Qtd'] / total_divergencias * 100).round(1).astype(str) + '%'
-        
-        if not df_top10.empty:
-            fig_barras = px.bar(
-                df_top10, 
-                x='Qtd', y='Motivo', orientation='h',
-                color_discrete_sequence=['#FF4B4B'], custom_data=['Porcentagem'] 
-            )
-            fig_barras.update_traces(hovertemplate="<b>%{y}</b><br>Qtd: %{x}<br>Impacto: %{customdata[0]}<extra></extra>")
-            fig_barras.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white", height=450)
-            st.plotly_chart(fig_barras, use_container_width=True)
-        else:
-            st.info("Nenhuma divergência encontrada.")
-
-st.markdown("---")
 
 # --- PASSO 7: BASE DETALHADA ---
 with st.expander("📂 Abrir Base de Dados Detalhada"):
