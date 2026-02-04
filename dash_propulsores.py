@@ -8,7 +8,6 @@ st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
 # --- BLOCO DE AUTENTICAÇÃO ---
 def check_password():
-    """Retorna `True` se o usuário tiver a senha correta."""
     def password_entered():
         if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
             st.session_state["password_correct"] = True
@@ -29,7 +28,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# Estilos CSS (Visual Clean - Azul Asaas)
+# Estilos CSS
 st.markdown("""
     <style>
     [data-testid="stMetricLabel"] { color: #0051CC !important; font-weight: bold !important; }
@@ -57,11 +56,9 @@ st.markdown("---")
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
-# Mudei o ttl para 30 segundos (Atualiza quase em tempo real)
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=30) # Atualiza a cada 30 segundos
 def carregar_dados_online():
     try:
-        # Transforma link de visualização em link CSV para baixar direto
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
         csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
         
@@ -73,7 +70,6 @@ def carregar_dados_online():
         
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
-            # Garante que datas como 05/01/2026 sejam lidas corretamente
             tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
             tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
         else:
@@ -88,6 +84,18 @@ tabela = carregar_dados_online()
 
 if tabela is None:
     st.stop()
+
+# --- 🕵️‍♂️ DIAGNÓSTICO DE DADOS ---
+with st.expander("🕵️‍♂️ CLIQUE AQUI PARA DESCOBRIR O PROBLEMA (DIAGNÓSTICO)"):
+    st.write("### As últimas 5 linhas que o sistema leu:")
+    st.write("Se a data aqui for 2025, o sistema não está lendo suas linhas novas.")
+    st.dataframe(tabela.tail(5))
+    
+    st.write("### Maior data encontrada no sistema:")
+    if "Filtro_Data" in tabela.columns:
+        st.write(tabela["Filtro_Data"].max())
+    
+    st.info(f"O sistema está lendo estes dois links:\n1. {url_planilha_1}\n2. {url_planilha_2}\n\nVerifique se a planilha que você está editando tem EXATAMENTE um desses links no navegador.")
 
 # --- PASSO 2: NOMES DAS COLUNAS ---
 col_empresa = "Tipo de Empresa"
@@ -106,7 +114,7 @@ if "Filtro_Data" in tabela.columns:
     if not datas_reais.empty:
         max_date = datas_reais.max()
         min_date = datas_reais.min()
-        st.sidebar.info(f"📅 Dados de: **{min_date.strftime('%d/%m/%Y')}** até **{max_date.strftime('%d/%m/%Y')}**")
+        st.sidebar.info(f"📅 Base Total: **{min_date}** até **{max_date}**")
 
 tabela_filtrada = tabela.copy()
 datas_validas = tabela["Filtro_Data"].dropna()
