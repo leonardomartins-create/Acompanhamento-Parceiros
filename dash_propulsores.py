@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import hmac
+from datetime import date
+import unicodedata
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
 # --- BLOCO DE AUTENTICAÇÃO ---
 def check_password():
-    """Retorna `True` se o usuário tiver a senha correta."""
     def password_entered():
         if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
             st.session_state["password_correct"] = True
@@ -53,6 +54,33 @@ with col_titulo:
 
 st.markdown("---")
 
+# --- FUNÇÃO DE NORMALIZAÇÃO DE COLUNAS ---
+def normalizar_colunas(df):
+    """
+    Padroniza os nomes das colunas para evitar erros de espaço ou acentuação.
+    Transforma 'Data Criação ' ou 'data criacao' em 'Data Criação'.
+    """
+    mapa_renomeacao = {}
+    for col in df.columns:
+        # Remove acentos, poe minusculo e tira espaços
+        col_clean = ''.join(c for c in unicodedata.normalize('NFD', col) if unicodedata.category(c) != 'Mn')
+        col_clean = col_clean.lower().replace(" ", "").strip()
+        
+        if "datacriacao" in col_clean:
+            mapa_renomeacao[col] = "Data Criação"
+        elif "nomeparceiro" in col_clean:
+            mapa_renomeacao[col] = "Nome Parceiro"
+        elif "tipodeempresa" in col_clean or "tipopessoa" in col_clean:
+            mapa_renomeacao[col] = "Tipo de Empresa"
+        elif "tipodedocumento" in col_clean:
+            mapa_renomeacao[col] = "Tipo de Documento"
+        elif "divergencias" in col_clean:
+            mapa_renomeacao[col] = "Divergências"
+        elif "analise" == col_clean: # Cuidado para não pegar 'Analista'
+            mapa_renomeacao[col] = "Análise"
+            
+    return df.rename(columns=mapa_renomeacao)
+
 # --- PASSO 1: CARREGAR DADOS ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
@@ -63,25 +91,24 @@ def carregar_dados_online():
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
         csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
         
+        # Carrega separadamente para normalizar ANTES de juntar
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
-        # REMOVE ESPAÇOS DOS NOMES DAS COLUNAS (CRÍTICO)
-        df1.columns = df1.columns.str.strip()
-        df2.columns = df2.columns.str.strip()
+        # --- APLICA A NORMALIZAÇÃO ---
+        df1 = normalizar_colunas(df1)
+        df2 = normalizar_colunas(df2)
+        # -----------------------------
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         
-        # --- LIMPEZA (REGRAS MAIS LEVES) ---
-        # Removi "Data Criação" da obrigatoriedade. 
-        # Agora só deleta se não tiver Analista ou Status.
+        # Limpeza Leve (Analista e Análise obrigatórios)
         colunas_obrigatorias = ["Semana", "Analista", "Análise"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
-        
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
         
-        # Conversão de Data (Sem deletar quem não tem data)
+        # Conversão de Data
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
             tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
@@ -89,51 +116,54 @@ def carregar_dados_online():
         else:
             tabela_final["Filtro_Data"] = None
             
-        return tabela_final
+        return tabela_final, df1.columns.tolist(), df2.columns.tolist() # Retorna colunas para debug
     except Exception as e:
         st.error(f"Erro ao ler planilhas: {e}")
-        return None
+        return None, [], []
 
-tabela = carregar_dados_online()
+tabela, cols1, cols2 = carregar_dados_online()
 
 if tabela is None:
     st.stop()
 
-# --- PASSO 2: NOMES DAS COLUNAS ---
+# --- DIAGNÓSTICO DE COLUNAS (PARA VOCÊ VER) ---
+# Se os dados ainda não aparecerem, abra essa aba no painel para ver como o Python leu as colunas
+with st.expander("🕵️‍♂️ DEBUG: Ver Colunas Lidas"):
+    c1, c2 = st.columns(2)
+    c1.write("Planilha 1 (Colunas):")
+    c1.write(cols1)
+    c2.write("Planilha 2 (Colunas):")
+    c2.write(cols2)
+
+# --- PASSO 2: NOMES DAS COLUNAS (JÁ NORMALIZADOS) ---
 col_empresa = "Tipo de Empresa"
 col_documento = "Tipo de Documento"
 col_parceiro_nome = "Nome Parceiro"
-col_parceiro_id = "ID Cliente"
 col_status = "Análise"
 col_divergencia = "Divergências"
 
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
-# Filtro de Data
-if "Filtro_Data" in tabela.columns:
-    datas_reais = tabela["Filtro_Data"].dropna()
-    if not datas_reais.empty:
-        max_date = datas_reais.max()
-        min_date = datas_reais.min()
-        st.sidebar.info(f"📅 Período: **{min_date.strftime('%d/%m/%Y')}** até **{max_date.strftime('%d/%m/%Y')}**")
-
 tabela_filtrada = tabela.copy()
 datas_validas = tabela["Filtro_Data"].dropna()
 
 if not datas_validas.empty:
     try:
-        min_data = datas_validas.min()
-        max_data = datas_validas.max()
+        min_data_real = datas_validas.min()
+        max_data_real = datas_validas.max()
+        
+        # Força o calendário até o fim de 2026
+        limite_calendario = date(2026, 12, 31)
         
         st.sidebar.subheader("Seleção de Período")
-        # Deixe essa opção marcada para ver as linhas sem data (2026 que não preencheram)
         incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=True)
         
         data_inicial, data_final = st.sidebar.date_input(
             "Selecione o intervalo",
-            value=(min_data, max_data),
-            min_value=min_data, max_value=max_data
+            value=(min_data_real, max_data_real), # Pega a maior data real encontrada
+            min_value=min_data_real,
+            max_value=limite_calendario 
         )
         
         if incluir_vazios:
@@ -153,7 +183,6 @@ if not datas_validas.empty:
 
 st.sidebar.subheader("Categorias")
 
-# Filtro Parceiro
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
@@ -224,7 +253,7 @@ with col_t1:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
         st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
     else:
-        st.warning(f"Coluna '{col_empresa}' não encontrada. Verifique o nome na planilha.")
+        st.warning(f"Coluna '{col_empresa}' não encontrada.")
 
 with col_t2:
     st.write("**Ranking de Divergências**")
