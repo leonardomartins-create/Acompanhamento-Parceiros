@@ -52,13 +52,14 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- PASSO 1: CARREGAR DADOS ---
+# --- PASSO 1: CARREGAR DADOS (MÉTODO CSV - SEM ERRO 401) ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     try:
+        # Transforma link de visualização em link CSV para baixar direto
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
         csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
         
@@ -85,18 +86,18 @@ tabela = carregar_dados_online()
 if tabela is None:
     st.stop()
 
-# --- PASSO 2: NOMES DAS COLUNAS (AJUSTADO) ---
-# Aqui voltamos com o nome que estava funcionando pra você
-col_empresa = "Tipo de Empresa"     # Contém: Física, MEI, Limitada...
-col_documento = "Tipo de Documento"  # Contém: CNH, RG...
-col_parceiro_nome = "Nome Parceiro"  # Contém: Jumio, CAF...
+# --- PASSO 2: NOMES DAS COLUNAS (CORRIGIDOS) ---
+col_empresa = "Tempo de Análise"     # Na sua planilha, o Tipo de Empresa está nesta coluna
+col_documento = "Tipo de Documento"
+col_parceiro_nome = "Nome Parceiro"  # <--- COLUNA DO FILTRO JUMIO/CAF
+col_parceiro_id = "ID Cliente"
 col_status = "Análise"
 col_divergencia = "Divergências"
-col_parceiro_id = "ID Cliente"       # Ajustei conforme sua imagem (era ID Conta Principal)
 
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
+# Filtro de Data
 if "Filtro_Data" in tabela.columns:
     datas_reais = tabela["Filtro_Data"].dropna()
     if not datas_reais.empty:
@@ -137,11 +138,13 @@ if not datas_validas.empty:
 
 st.sidebar.subheader("Categorias")
 
+# --- AQUI ESTÁ O FILTRO QUE VOCÊ PEDIU ---
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
     if parceiro_nome_sel:
         tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_nome].astype(str).isin(parceiro_nome_sel)]
+# -----------------------------------------
 
 if col_documento in tabela.columns:
     opcoes_doc = sorted(tabela[col_documento].dropna().astype(str).unique())
@@ -184,10 +187,9 @@ c4.metric("🚨 Doc. Adulterados", qtd_adulterado, help=f"{perc_adulterado:.1f}%
 
 st.markdown("---")
 
-# --- PASSO 5: VISUALIZAÇÃO GRÁFICA (AJUSTADO) ---
+# --- PASSO 5: VISUALIZAÇÃO GRÁFICA ---
 st.subheader("📊 Visualização Gráfica")
 
-# Função auxiliar
 def criar_resumo(df, coluna, nome_index):
     if coluna not in df.columns: return pd.DataFrame()
     temp = df[coluna].dropna().astype(str)
@@ -200,10 +202,10 @@ def criar_resumo(df, coluna, nome_index):
     resumo["%"] = (resumo["Qtd"] / total_loc * 100) if total_loc > 0 else 0
     return resumo
 
-# 1. GRÁFICO DE CIMA: Volume por Tipo de Empresa (col_empresa)
+# 1. GRÁFICO DE CIMA: Volume por Tipo de Empresa
 st.write("### 🏢 Volume por Tipo de Empresa")
 if col_empresa in tabela_filtrada.columns and not tabela_filtrada.empty:
-    c_emp1, c_emp2 = st.columns([2, 1]) # Gráfico na esquerda (maior), Tabela na direita
+    c_emp1, c_emp2 = st.columns([2, 1]) 
     
     with c_emp1:
         df_pizza = tabela_filtrada[col_empresa].value_counts().reset_index()
@@ -215,14 +217,13 @@ if col_empresa in tabela_filtrada.columns and not tabela_filtrada.empty:
         df_emp_table = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
         st.dataframe(df_emp_table, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
 else:
-    st.warning(f"Coluna '{col_empresa}' não encontrada para gerar o gráfico.")
+    st.warning(f"Coluna '{col_empresa}' não encontrada.")
 
 st.markdown("---")
 
-# 2. GRÁFICO DE BAIXO: Volume por Tipo de Documento (col_documento)
+# 2. GRÁFICO DE BAIXO: Volume por Tipo de Documento
 st.write("### 📑 Volume por Tipo de Documento")
 if col_documento in tabela_filtrada.columns and not tabela_filtrada.empty:
-    # Preparando dados
     df_doc = tabela_filtrada[col_documento].value_counts().reset_index()
     df_doc.columns = ['Documento', 'Qtd']
     
@@ -230,9 +231,9 @@ if col_documento in tabela_filtrada.columns and not tabela_filtrada.empty:
     df_doc['Porcentagem'] = (df_doc['Qtd'] / total_docs * 100).round(1).astype(str) + '%'
 
     fig_barras_doc = px.bar(
-        df_doc.head(10), # Top 10 tipos se houver muitos
+        df_doc.head(10), 
         x='Qtd', y='Documento', orientation='h',
-        color_discrete_sequence=['#0051CC'], # Azul Asaas
+        color_discrete_sequence=['#0051CC'],
         text='Qtd',
         custom_data=['Porcentagem']
     )
@@ -247,7 +248,7 @@ else:
 
 st.markdown("---")
 
-# Gráfico de Evolução (Mantido no final ou topo conforme preferência, deixei aqui pra não poluir)
+# Evolução Diária
 st.write("**Evolução Diária**")
 if "Filtro_Data" in tabela_filtrada.columns and col_status in tabela_filtrada.columns and not tabela_filtrada.empty:
     df_chart = tabela_filtrada.copy()
@@ -274,4 +275,3 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
-
