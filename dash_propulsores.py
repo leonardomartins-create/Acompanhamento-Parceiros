@@ -54,32 +54,52 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- FUNÇÃO DE NORMALIZAÇÃO DE COLUNAS ---
-def normalizar_colunas(df):
+# --- FUNÇÃO MÁGICA: ASPIRADOR DE DATAS ---
+def encontrar_e_mesclar_datas(df):
     """
-    Padroniza os nomes das colunas para evitar erros de espaço ou acentuação.
-    Transforma 'Data Criação ' ou 'data criacao' em 'Data Criação'.
+    Procura qualquer coluna que pareça 'Data Criação' e combina todas em uma só.
+    Isso resolve problemas de colunas duplicadas (Data Criação.1) ou nomes com espaço.
     """
-    mapa_renomeacao = {}
+    # 1. Normaliza nomes das colunas
+    col_map = {}
+    cols_de_data_encontradas = []
+    
     for col in df.columns:
-        # Remove acentos, poe minusculo e tira espaços
-        col_clean = ''.join(c for c in unicodedata.normalize('NFD', col) if unicodedata.category(c) != 'Mn')
-        col_clean = col_clean.lower().replace(" ", "").strip()
+        # Remove acentos e espaços para comparar
+        clean_name = ''.join(c for c in unicodedata.normalize('NFD', col) if unicodedata.category(c) != 'Mn')
+        clean_name = clean_name.lower().replace(" ", "").strip()
         
-        if "datacriacao" in col_clean:
-            mapa_renomeacao[col] = "Data Criação"
-        elif "nomeparceiro" in col_clean:
-            mapa_renomeacao[col] = "Nome Parceiro"
-        elif "tipodeempresa" in col_clean or "tipopessoa" in col_clean:
-            mapa_renomeacao[col] = "Tipo de Empresa"
-        elif "tipodedocumento" in col_clean:
-            mapa_renomeacao[col] = "Tipo de Documento"
-        elif "divergencias" in col_clean:
-            mapa_renomeacao[col] = "Divergências"
-        elif "analise" == col_clean: # Cuidado para não pegar 'Analista'
-            mapa_renomeacao[col] = "Análise"
+        # Mapeia nomes padrão
+        if "nomeparceiro" in clean_name: col_map[col] = "Nome Parceiro"
+        elif "tipodeempresa" in clean_name: col_map[col] = "Tipo de Empresa"
+        elif "tipodedocumento" in clean_name: col_map[col] = "Tipo de Documento"
+        elif "analise" == clean_name: col_map[col] = "Análise"
+        elif "divergencias" in clean_name: col_map[col] = "Divergências"
+        
+        # Identifica colunas de data (pode ter várias!)
+        if "datacriacao" in clean_name:
+            cols_de_data_encontradas.append(col)
+
+    # Renomeia as colunas padrão
+    df = df.rename(columns=col_map)
+    
+    # 2. Mescla as datas (O Pulo do Gato)
+    if cols_de_data_encontradas:
+        # Cria uma coluna mestre vazia
+        df["Data_Final_Mestre"] = pd.NaT
+        
+        for col_data in cols_de_data_encontradas:
+            # Tenta converter a coluna para data
+            dates = pd.to_datetime(df[col_data], dayfirst=True, errors='coerce')
+            # Preenche os vazios da mestre com os dados dessa coluna
+            df["Data_Final_Mestre"] = df["Data_Final_Mestre"].fillna(dates)
             
-    return df.rename(columns=mapa_renomeacao)
+        # Define a coluna oficial
+        df["Filtro_Data"] = df["Data_Final_Mestre"].dt.date
+    else:
+        df["Filtro_Data"] = None
+
+    return df
 
 # --- PASSO 1: CARREGAR DADOS ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
@@ -91,51 +111,31 @@ def carregar_dados_online():
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
         csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
         
-        # Carrega separadamente para normalizar ANTES de juntar
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
-        # --- APLICA A NORMALIZAÇÃO ---
-        df1 = normalizar_colunas(df1)
-        df2 = normalizar_colunas(df2)
-        # -----------------------------
-        
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         
-        # Limpeza Leve (Analista e Análise obrigatórios)
+        # Aplica o "Aspirador de Datas" e Normalizador
+        tabela_final = encontrar_e_mesclar_datas(tabela_final)
+        
+        # Limpeza Leve (Analista e Análise obrigatórios apenas)
         colunas_obrigatorias = ["Semana", "Analista", "Análise"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
-        
-        # Conversão de Data
-        col_data = "Data Criação"
-        if col_data in tabela_final.columns:
-            tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
-            tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
-        else:
-            tabela_final["Filtro_Data"] = None
             
-        return tabela_final, df1.columns.tolist(), df2.columns.tolist() # Retorna colunas para debug
+        return tabela_final
     except Exception as e:
         st.error(f"Erro ao ler planilhas: {e}")
-        return None, [], []
+        return None
 
-tabela, cols1, cols2 = carregar_dados_online()
+tabela = carregar_dados_online()
 
 if tabela is None:
     st.stop()
 
-# --- DIAGNÓSTICO DE COLUNAS (PARA VOCÊ VER) ---
-# Se os dados ainda não aparecerem, abra essa aba no painel para ver como o Python leu as colunas
-with st.expander("🕵️‍♂️ DEBUG: Ver Colunas Lidas"):
-    c1, c2 = st.columns(2)
-    c1.write("Planilha 1 (Colunas):")
-    c1.write(cols1)
-    c2.write("Planilha 2 (Colunas):")
-    c2.write(cols2)
-
-# --- PASSO 2: NOMES DAS COLUNAS (JÁ NORMALIZADOS) ---
+# --- PASSO 2: NOMES DAS COLUNAS ---
 col_empresa = "Tipo de Empresa"
 col_documento = "Tipo de Documento"
 col_parceiro_nome = "Nome Parceiro"
@@ -145,6 +145,7 @@ col_divergencia = "Divergências"
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
+# Filtro de Data
 tabela_filtrada = tabela.copy()
 datas_validas = tabela["Filtro_Data"].dropna()
 
@@ -152,16 +153,14 @@ if not datas_validas.empty:
     try:
         min_data_real = datas_validas.min()
         max_data_real = datas_validas.max()
-        
-        # Força o calendário até o fim de 2026
-        limite_calendario = date(2026, 12, 31)
+        limite_calendario = date(2026, 12, 31) # Força 2026
         
         st.sidebar.subheader("Seleção de Período")
         incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=True)
         
         data_inicial, data_final = st.sidebar.date_input(
             "Selecione o intervalo",
-            value=(min_data_real, max_data_real), # Pega a maior data real encontrada
+            value=(min_data_real, max_data_real),
             min_value=min_data_real,
             max_value=limite_calendario 
         )
@@ -183,6 +182,7 @@ if not datas_validas.empty:
 
 st.sidebar.subheader("Categorias")
 
+# Filtros Dinâmicos
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
@@ -230,7 +230,7 @@ c4.metric("🚨 Doc. Adulterados", qtd_adulterado, help=f"{perc_adulterado:.1f}%
 
 st.markdown("---")
 
-# --- PASSO 5: TABELAS (EM CIMA) ---
+# --- PASSO 5: TABELAS ---
 st.subheader("📋 Resumo Analítico")
 
 def criar_resumo(df, coluna, nome_index):
@@ -263,7 +263,7 @@ with col_t2:
 
 st.markdown("---")
 
-# --- PASSO 6: GRÁFICOS (EMBAIXO) ---
+# --- PASSO 6: GRÁFICOS ---
 st.subheader("📊 Visualização Gráfica")
 
 st.write("**Evolução Diária**")
@@ -294,7 +294,7 @@ with g1:
         st.plotly_chart(fig_pizza, use_container_width=True)
 
 with g2:
-    st.write("**Top Divergências (Passe o mouse para detalhes)**")
+    st.write("**Top Divergências**")
     if col_divergencia in tabela_filtrada.columns and not tabela_filtrada.empty:
         df_div_graph = tabela_filtrada[col_divergencia].fillna("").astype(str)
         ignorar_grafico = ["", "nan", "None", "Não informado", "None"]
@@ -316,17 +316,8 @@ with g2:
                 color_discrete_sequence=['#FF4B4B'],
                 custom_data=['Porcentagem'] 
             )
-            
-            fig_barras.update_traces(
-                hovertemplate="<b>%{y}</b><br>Quantidade: %{x}<br>Impacto: %{customdata[0]}<extra></extra>"
-            )
-            
-            fig_barras.update_layout(
-                yaxis={'categoryorder':'total ascending'}, 
-                plot_bgcolor="white", 
-                xaxis_title="Quantidade",
-                height=450
-            )
+            fig_barras.update_traces(hovertemplate="<b>%{y}</b><br>Qtd: %{x}<br>Impacto: %{customdata[0]}<extra></extra>")
+            fig_barras.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white", height=450)
             st.plotly_chart(fig_barras, use_container_width=True)
         else:
             st.info("Nenhuma divergência encontrada.")
