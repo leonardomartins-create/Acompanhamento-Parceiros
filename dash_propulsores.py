@@ -87,7 +87,7 @@ if tabela is None:
     st.stop()
 
 # --- PASSO 2: NOMES DAS COLUNAS (CORRIGIDOS) ---
-col_empresa = "Tempo de Análise"     # Na sua planilha, o Tipo de Empresa está nesta coluna
+col_empresa = "Tipo de Empresa"     # Na sua planilha, o Tipo de Empresa está nesta coluna
 col_documento = "Tipo de Documento"
 col_parceiro_nome = "Nome Parceiro"  # <--- COLUNA DO FILTRO JUMIO/CAF
 col_parceiro_id = "ID Cliente"
@@ -275,3 +275,4 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
+
