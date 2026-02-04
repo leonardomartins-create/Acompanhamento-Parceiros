@@ -66,23 +66,27 @@ def carregar_dados_online():
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
+        # --- CORREÇÃO DE COLUNAS (O PULO DO GATO) ---
+        # Remove espaços extras dos nomes DAS DUAS planilhas ANTES de juntar
+        df1.columns = df1.columns.str.strip()
+        df2.columns = df2.columns.str.strip()
+        
+        # Agora sim junta as duas, garantindo que "Data Criação" caia na mesma coluna
         tabela_final = pd.concat([df1, df2], ignore_index=True)
-        tabela_final.columns = tabela_final.columns.str.strip()
         
-        # --- LIMPEZA BLINDADA (PEDIDO DO USUÁRIO) ---
-        # Só aceita linhas onde TODAS essas colunas estiverem preenchidas
-        colunas_obrigatorias = ["Semana", "Analista", "Link Análise", "Análise", "Tipo de Documento"]
-        
-        # Verifica quais colunas realmente existem para não dar erro
+        # --- LIMPEZA BLINDADA ---
+        colunas_obrigatorias = ["Semana", "Analista", "Link Análise", "Análise", "Tipo de Documento", "Data Criação"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
         
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
-        # ---------------------------------------------
         
+        # Conversão de Data
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
+            # Força conversão para data (aceita DD/MM/AAAA)
             tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
+            tabela_final = tabela_final.dropna(subset=[col_data]) 
             tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
         else:
             tabela_final["Filtro_Data"] = None
@@ -221,7 +225,7 @@ with col_t1:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
         st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
     else:
-        st.warning(f"Coluna '{col_empresa}' não encontrada.")
+        st.warning(f"Coluna '{col_empresa}' não encontrada. Verifique o nome na planilha.")
 
 with col_t2:
     st.write("**Ranking de Divergências**")
@@ -273,41 +277,4 @@ with g2:
         
         df_top10 = df_counts.head(10).copy()
         total_divergencias = df_counts['Qtd'].sum()
-        df_top10['Porcentagem'] = (df_top10['Qtd'] / total_divergencias * 100).round(1).astype(str) + '%'
-        
-        if not df_top10.empty:
-            fig_barras = px.bar(
-                df_top10, 
-                x='Qtd', 
-                y='Motivo', 
-                orientation='h',
-                color_discrete_sequence=['#FF4B4B'],
-                custom_data=['Porcentagem'] 
-            )
-            
-            fig_barras.update_traces(
-                hovertemplate="<b>%{y}</b><br>Quantidade: %{x}<br>Impacto: %{customdata[0]}<extra></extra>"
-            )
-            
-            fig_barras.update_layout(
-                yaxis={'categoryorder':'total ascending'}, 
-                plot_bgcolor="white", 
-                xaxis_title="Quantidade",
-                height=450
-            )
-            st.plotly_chart(fig_barras, use_container_width=True)
-        else:
-            st.info("Nenhuma divergência encontrada.")
-
-st.markdown("---")
-
-# --- PASSO 7: BASE DETALHADA ---
-with st.expander("📂 Abrir Base de Dados Detalhada"):
-    def highlight_erros(row):
-        val = row[col_status] if col_status in row else ''
-        if val not in ["Confere", "Aprovado"]: return ['background-color: #ffe6e6'] * len(row)
-        return [''] * len(row)
-    try:
-        st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
-    except:
-        st.dataframe(tabela_filtrada, use_container_width=True)
+        df_top10['Porcentagem
