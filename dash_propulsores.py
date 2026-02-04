@@ -87,7 +87,7 @@ if tabela is None:
 
 # --- PASSO 2: NOMES DAS COLUNAS (AJUSTADO) ---
 # Aqui voltamos com o nome que estava funcionando pra você
-col_empresa = "Tempo de Análise"     # Contém: Física, MEI, Limitada...
+col_empresa = "Tipo de Empresa"     # Contém: Física, MEI, Limitada...
 col_documento = "Tipo de Documento"  # Contém: CNH, RG...
 col_parceiro_nome = "Nome Parceiro"  # Contém: Jumio, CAF...
 col_status = "Análise"
@@ -274,3 +274,4 @@ with st.expander("📂 Abrir Base de Dados Detalhada"):
         st.dataframe(tabela_filtrada.style.apply(highlight_erros, axis=1), use_container_width=True)
     except:
         st.dataframe(tabela_filtrada, use_container_width=True)
+
