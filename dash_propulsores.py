@@ -8,6 +8,7 @@ st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
 # --- BLOCO DE AUTENTICAÇÃO ---
 def check_password():
+    """Retorna `True` se o usuário tiver a senha correta."""
     def password_entered():
         if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
             st.session_state["password_correct"] = True
@@ -56,7 +57,7 @@ st.markdown("---")
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
-@st.cache_data(ttl=30) # Atualiza a cada 30 segundos
+@st.cache_data(ttl=30)
 def carregar_dados_online():
     try:
         csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
@@ -67,6 +68,17 @@ def carregar_dados_online():
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         tabela_final.columns = tabela_final.columns.str.strip()
+        
+        # --- LIMPEZA BLINDADA (PEDIDO DO USUÁRIO) ---
+        # Só aceita linhas onde TODAS essas colunas estiverem preenchidas
+        colunas_obrigatorias = ["Semana", "Analista", "Link Análise", "Análise", "Tipo de Documento"]
+        
+        # Verifica quais colunas realmente existem para não dar erro
+        cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
+        
+        if cols_presentes:
+            tabela_final = tabela_final.dropna(subset=cols_presentes)
+        # ---------------------------------------------
         
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
@@ -85,18 +97,6 @@ tabela = carregar_dados_online()
 if tabela is None:
     st.stop()
 
-# --- 🕵️‍♂️ DIAGNÓSTICO DE DADOS ---
-with st.expander("🕵️‍♂️ CLIQUE AQUI PARA DESCOBRIR O PROBLEMA (DIAGNÓSTICO)"):
-    st.write("### As últimas 5 linhas que o sistema leu:")
-    st.write("Se a data aqui for 2025, o sistema não está lendo suas linhas novas.")
-    st.dataframe(tabela.tail(5))
-    
-    st.write("### Maior data encontrada no sistema:")
-    if "Filtro_Data" in tabela.columns:
-        st.write(tabela["Filtro_Data"].max())
-    
-    st.info(f"O sistema está lendo estes dois links:\n1. {url_planilha_1}\n2. {url_planilha_2}\n\nVerifique se a planilha que você está editando tem EXATAMENTE um desses links no navegador.")
-
 # --- PASSO 2: NOMES DAS COLUNAS ---
 col_empresa = "Tipo de Empresa"
 col_documento = "Tipo de Documento"
@@ -114,7 +114,7 @@ if "Filtro_Data" in tabela.columns:
     if not datas_reais.empty:
         max_date = datas_reais.max()
         min_date = datas_reais.min()
-        st.sidebar.info(f"📅 Base Total: **{min_date}** até **{max_date}**")
+        st.sidebar.info(f"📅 Período: **{min_date.strftime('%d/%m/%Y')}** até **{max_date.strftime('%d/%m/%Y')}**")
 
 tabela_filtrada = tabela.copy()
 datas_validas = tabela["Filtro_Data"].dropna()
@@ -124,7 +124,7 @@ if not datas_validas.empty:
         min_data = datas_validas.min()
         max_data = datas_validas.max()
         
-        st.sidebar.subheader("Período")
+        st.sidebar.subheader("Seleção de Período")
         incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=True)
         
         data_inicial, data_final = st.sidebar.date_input(
@@ -221,7 +221,7 @@ with col_t1:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
         st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
     else:
-        st.warning(f"Coluna '{col_empresa}' não encontrada. Verifique o nome na planilha.")
+        st.warning(f"Coluna '{col_empresa}' não encontrada.")
 
 with col_t2:
     st.write("**Ranking de Divergências**")
