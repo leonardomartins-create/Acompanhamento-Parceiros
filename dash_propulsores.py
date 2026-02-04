@@ -53,11 +53,12 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- PASSO 1: CARREGAR DADOS (MÉTODO CSV - ANTI-ERRO 401) ---
+# --- PASSO 1: CARREGAR DADOS ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
-@st.cache_data(ttl=600)
+# Mudei o ttl para 30 segundos (Atualiza quase em tempo real)
+@st.cache_data(ttl=30)
 def carregar_dados_online():
     try:
         # Transforma link de visualização em link CSV para baixar direto
@@ -72,6 +73,7 @@ def carregar_dados_online():
         
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
+            # Garante que datas como 05/01/2026 sejam lidas corretamente
             tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
             tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
         else:
@@ -87,8 +89,8 @@ tabela = carregar_dados_online()
 if tabela is None:
     st.stop()
 
-# --- PASSO 2: NOMES DAS COLUNAS (CORRIGIDO PARA "Tipo de Empresa") ---
-col_empresa = "Tipo de Empresa"      # <--- AGORA SIM!
+# --- PASSO 2: NOMES DAS COLUNAS ---
+col_empresa = "Tipo de Empresa"
 col_documento = "Tipo de Documento"
 col_parceiro_nome = "Nome Parceiro"
 col_parceiro_id = "ID Cliente"
@@ -103,7 +105,8 @@ if "Filtro_Data" in tabela.columns:
     datas_reais = tabela["Filtro_Data"].dropna()
     if not datas_reais.empty:
         max_date = datas_reais.max()
-        st.sidebar.info(f"📅 Dados até: **{max_date}**")
+        min_date = datas_reais.min()
+        st.sidebar.info(f"📅 Dados de: **{min_date.strftime('%d/%m/%Y')}** até **{max_date.strftime('%d/%m/%Y')}**")
 
 tabela_filtrada = tabela.copy()
 datas_validas = tabela["Filtro_Data"].dropna()
@@ -139,7 +142,7 @@ if not datas_validas.empty:
 
 st.sidebar.subheader("Categorias")
 
-# --- FILTRO: PARCEIRO (JUMIO/CAF) ---
+# Filtro Parceiro
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
@@ -187,7 +190,7 @@ c4.metric("🚨 Doc. Adulterados", qtd_adulterado, help=f"{perc_adulterado:.1f}%
 
 st.markdown("---")
 
-# --- PASSO 5: LAYOUT ORIGINAL (TABELAS EM CIMA) ---
+# --- PASSO 5: TABELAS (EM CIMA) ---
 st.subheader("📋 Resumo Analítico")
 
 def criar_resumo(df, coluna, nome_index):
