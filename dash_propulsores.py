@@ -66,24 +66,25 @@ def carregar_dados_online():
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
-        # Correção de Colunas (Remove espaços extras)
+        # REMOVE ESPAÇOS DOS NOMES DAS COLUNAS (CRÍTICO)
         df1.columns = df1.columns.str.strip()
         df2.columns = df2.columns.str.strip()
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         
-        # --- LIMPEZA BLINDADA ---
-        colunas_obrigatorias = ["Semana", "Analista", "Link Análise", "Análise", "Tipo de Documento", "Data Criação"]
+        # --- LIMPEZA (REGRAS MAIS LEVES) ---
+        # Removi "Data Criação" da obrigatoriedade. 
+        # Agora só deleta se não tiver Analista ou Status.
+        colunas_obrigatorias = ["Semana", "Analista", "Análise"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
         
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
         
-        # Conversão de Data
+        # Conversão de Data (Sem deletar quem não tem data)
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
             tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
-            tabela_final = tabela_final.dropna(subset=[col_data]) 
             tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
         else:
             tabela_final["Filtro_Data"] = None
@@ -109,6 +110,7 @@ col_divergencia = "Divergências"
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
+# Filtro de Data
 if "Filtro_Data" in tabela.columns:
     datas_reais = tabela["Filtro_Data"].dropna()
     if not datas_reais.empty:
@@ -125,6 +127,7 @@ if not datas_validas.empty:
         max_data = datas_validas.max()
         
         st.sidebar.subheader("Seleção de Período")
+        # Deixe essa opção marcada para ver as linhas sem data (2026 que não preencheram)
         incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=True)
         
         data_inicial, data_final = st.sidebar.date_input(
@@ -221,7 +224,7 @@ with col_t1:
         df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
         st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
     else:
-        st.warning(f"Coluna '{col_empresa}' não encontrada.")
+        st.warning(f"Coluna '{col_empresa}' não encontrada. Verifique o nome na planilha.")
 
 with col_t2:
     st.write("**Ranking de Divergências**")
