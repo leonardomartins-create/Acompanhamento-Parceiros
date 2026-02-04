@@ -60,41 +60,29 @@ def encontrar_e_mesclar_datas(df):
     Procura qualquer coluna que pareça 'Data Criação' e combina todas em uma só.
     Isso resolve problemas de colunas duplicadas (Data Criação.1) ou nomes com espaço.
     """
-    # 1. Normaliza nomes das colunas
     col_map = {}
     cols_de_data_encontradas = []
     
     for col in df.columns:
-        # Remove acentos e espaços para comparar
         clean_name = ''.join(c for c in unicodedata.normalize('NFD', col) if unicodedata.category(c) != 'Mn')
         clean_name = clean_name.lower().replace(" ", "").strip()
         
-        # Mapeia nomes padrão
         if "nomeparceiro" in clean_name: col_map[col] = "Nome Parceiro"
         elif "tipodeempresa" in clean_name: col_map[col] = "Tipo de Empresa"
         elif "tipodedocumento" in clean_name: col_map[col] = "Tipo de Documento"
         elif "analise" == clean_name: col_map[col] = "Análise"
         elif "divergencias" in clean_name: col_map[col] = "Divergências"
         
-        # Identifica colunas de data (pode ter várias!)
         if "datacriacao" in clean_name:
             cols_de_data_encontradas.append(col)
 
-    # Renomeia as colunas padrão
     df = df.rename(columns=col_map)
     
-    # 2. Mescla as datas (O Pulo do Gato)
     if cols_de_data_encontradas:
-        # Cria uma coluna mestre vazia
         df["Data_Final_Mestre"] = pd.NaT
-        
         for col_data in cols_de_data_encontradas:
-            # Tenta converter a coluna para data
             dates = pd.to_datetime(df[col_data], dayfirst=True, errors='coerce')
-            # Preenche os vazios da mestre com os dados dessa coluna
             df["Data_Final_Mestre"] = df["Data_Final_Mestre"].fillna(dates)
-            
-        # Define a coluna oficial
         df["Filtro_Data"] = df["Data_Final_Mestre"].dt.date
     else:
         df["Filtro_Data"] = None
@@ -115,11 +103,8 @@ def carregar_dados_online():
         df2 = pd.read_csv(csv_url_2)
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
-        
-        # Aplica o "Aspirador de Datas" e Normalizador
         tabela_final = encontrar_e_mesclar_datas(tabela_final)
         
-        # Limpeza Leve (Analista e Análise obrigatórios apenas)
         colunas_obrigatorias = ["Semana", "Analista", "Análise"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
         if cols_presentes:
@@ -145,7 +130,6 @@ col_divergencia = "Divergências"
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
-# Filtro de Data
 tabela_filtrada = tabela.copy()
 datas_validas = tabela["Filtro_Data"].dropna()
 
@@ -153,7 +137,7 @@ if not datas_validas.empty:
     try:
         min_data_real = datas_validas.min()
         max_data_real = datas_validas.max()
-        limite_calendario = date(2026, 12, 31) # Força 2026
+        limite_calendario = date(2026, 12, 31)
         
         st.sidebar.subheader("Seleção de Período")
         incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=True)
@@ -182,7 +166,6 @@ if not datas_validas.empty:
 
 st.sidebar.subheader("Categorias")
 
-# Filtros Dinâmicos
 if col_parceiro_nome in tabela.columns:
     opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
     parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
@@ -308,16 +291,28 @@ with g2:
         df_top10['Porcentagem'] = (df_top10['Qtd'] / total_divergencias * 100).round(1).astype(str) + '%'
         
         if not df_top10.empty:
+            # --- ATUALIZAÇÃO: TEXTO NA BARRA ---
             fig_barras = px.bar(
                 df_top10, 
                 x='Qtd', 
                 y='Motivo', 
                 orientation='h',
+                text='Porcentagem', # <--- Exibe a porcentagem
                 color_discrete_sequence=['#FF4B4B'],
                 custom_data=['Porcentagem'] 
             )
-            fig_barras.update_traces(hovertemplate="<b>%{y}</b><br>Qtd: %{x}<br>Impacto: %{customdata[0]}<extra></extra>")
-            fig_barras.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white", height=450)
+            
+            fig_barras.update_traces(
+                textposition='outside', # <--- Posição fora da barra
+                hovertemplate="<b>%{y}</b><br>Quantidade: %{x}<br>Impacto: %{customdata[0]}<extra></extra>"
+            )
+            
+            fig_barras.update_layout(
+                yaxis={'categoryorder':'total ascending'}, 
+                plot_bgcolor="white", 
+                xaxis_title="Quantidade",
+                height=450
+            )
             st.plotly_chart(fig_barras, use_container_width=True)
         else:
             st.info("Nenhuma divergência encontrada.")
