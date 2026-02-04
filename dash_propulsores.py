@@ -1,34 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import hmac
+from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Eficiência de Parceiros", layout="wide")
 
-# --- BLOCO DE AUTENTICAÇÃO ---
-def check_password():
-    def password_entered():
-        if hmac.compare_digest(st.session_state["password"], st.secrets["passwords"]["acesso_diretoria"]):
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if st.session_state.get("password_correct", False):
-        return True
-
-    st.markdown("### 🔒 Acesso Restrito - Diretoria")
-    st.text_input("Digite a senha de acesso:", type="password", on_change=password_entered, key="password")
-    
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("😕 Senha incorreta")
-    return False
-
-if not check_password():
-    st.stop()
-
-# Estilos CSS
+# Estilos CSS (Visual Clean)
 st.markdown("""
     <style>
     [data-testid="stMetricLabel"] { color: #0051CC !important; font-weight: bold !important; }
@@ -52,19 +30,16 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- PASSO 1: CARREGAR DADOS (MÉTODO CSV - SEM ERRO 401) ---
+# --- PASSO 1: CARREGAR DADOS ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
 url_planilha_2 = "https://docs.google.com/spreadsheets/d/1W64m1cA5WzyrzciDcXc0R28zVMnRrP7kK7sxrSiHAXE/edit?usp=sharing"
 
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     try:
-        # Transforma link de visualização em link CSV para baixar direto
-        csv_url_1 = url_planilha_1.replace("/edit?usp=sharing", "/export?format=csv")
-        csv_url_2 = url_planilha_2.replace("/edit?usp=sharing", "/export?format=csv")
-        
-        df1 = pd.read_csv(csv_url_1)
-        df2 = pd.read_csv(csv_url_2)
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df1 = conn.read(spreadsheet=url_planilha_1)
+        df2 = conn.read(spreadsheet=url_planilha_2)
         
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         tabela_final.columns = tabela_final.columns.str.strip()
@@ -78,7 +53,7 @@ def carregar_dados_online():
             
         return tabela_final
     except Exception as e:
-        st.error(f"Erro ao ler planilhas: {e}")
+        st.error(f"Erro na conexão Google Sheets: {e}")
         return None
 
 tabela = carregar_dados_online()
@@ -86,18 +61,16 @@ tabela = carregar_dados_online()
 if tabela is None:
     st.stop()
 
-# --- PASSO 2: NOMES DAS COLUNAS (CORRIGIDOS) ---
-col_empresa = "Tempo de Análise"     # Na sua planilha, o Tipo de Empresa está nesta coluna
+# --- PASSO 2: NOMES DAS COLUNAS ---
+col_empresa = "Tipo de Empresa"
 col_documento = "Tipo de Documento"
-col_parceiro_nome = "Nome Parceiro"  # <--- COLUNA DO FILTRO JUMIO/CAF
-col_parceiro_id = "ID Cliente"
+col_parceiro = "ID Conta Principal"
 col_status = "Análise"
 col_divergencia = "Divergências"
 
 # --- PASSO 3: FILTROS ---
 st.sidebar.header("🔍 Filtros")
 
-# Filtro de Data
 if "Filtro_Data" in tabela.columns:
     datas_reais = tabela["Filtro_Data"].dropna()
     if not datas_reais.empty:
@@ -132,33 +105,51 @@ if not datas_validas.empty:
                 (tabela_filtrada["Filtro_Data"] >= data_inicial) & 
                 (tabela_filtrada["Filtro_Data"] <= data_final)
             )
+            
         tabela_filtrada = tabela_filtrada.loc[mask_data]
+        
     except Exception as e:
         st.sidebar.warning(f"Erro no calendário: {e}")
+else:
+    st.sidebar.info("📅 Filtro de data indisponível.")
 
 st.sidebar.subheader("Categorias")
 
-# --- AQUI ESTÁ O FILTRO QUE VOCÊ PEDIU ---
-if col_parceiro_nome in tabela.columns:
-    opcoes_nome = sorted(tabela[col_parceiro_nome].dropna().astype(str).unique())
-    parceiro_nome_sel = st.sidebar.multiselect("Parceiro (Nome)", options=opcoes_nome)
-    if parceiro_nome_sel:
-        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro_nome].astype(str).isin(parceiro_nome_sel)]
-# -----------------------------------------
+# 1. Filtro Parceiro
+if col_parceiro in tabela.columns:
+    opcoes_parceiro = sorted(tabela[col_parceiro].dropna().astype(str).unique())
+    parceiro_sel = st.sidebar.multiselect("Parceiro (ID)", options=opcoes_parceiro)
+else:
+    parceiro_sel = []
 
+# 2. Filtro Documento
 if col_documento in tabela.columns:
     opcoes_doc = sorted(tabela[col_documento].dropna().astype(str).unique())
     doc_sel = st.sidebar.multiselect("Tipo de Documento", options=opcoes_doc)
-    if doc_sel:
-        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_documento].isin(doc_sel)]
+else:
+    doc_sel = []
 
+# 3. NOVO FILTRO: Tipo de Divergência
 if col_divergencia in tabela.columns:
+    # Pega valores únicos
     raw_options = tabela[col_divergencia].dropna().astype(str).unique()
+    # Remove lixo e "Não informado" para o filtro ficar limpo
     ignorar_filtro = ["", "nan", "None", "Não informado", "None", "NaT", "<NA>"]
     opcoes_divergencia = sorted([x for x in raw_options if x not in ignorar_filtro])
+    
     divergencia_sel = st.sidebar.multiselect("Tipo de Divergência", options=opcoes_divergencia)
-    if divergencia_sel:
-        tabela_filtrada = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).isin(divergencia_sel)]
+else:
+    divergencia_sel = []
+
+# --- APLICAÇÃO DOS FILTROS ---
+if parceiro_sel:
+    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_parceiro].astype(str).isin(parceiro_sel)]
+
+if doc_sel:
+    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_documento].isin(doc_sel)]
+
+if divergencia_sel:
+    tabela_filtrada = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).isin(divergencia_sel)]
 
 st.sidebar.markdown("---")
 csv = tabela_filtrada.to_csv(index=False).encode('utf-8')
@@ -176,7 +167,7 @@ if col_status in tabela.columns:
     if total > 0: assertividade = ((total - divergencias) / total) * 100
 
 if col_divergencia in tabela.columns:
-    qtd_adulterado = tabela_filtrada[tabela_filtrada[col_divergencia].astype(str).str.contains("adulterado", case=False, na=False)].shape[0]
+    qtd_adulterado = tabela_filtrada[tabela_filtrada[col_divergencia] == "Documento adulterado"].shape[0]
     if divergencias > 0: perc_adulterado = (qtd_adulterado / divergencias) * 100
 
 c1, c2, c3, c4 = st.columns(4)
@@ -187,8 +178,8 @@ c4.metric("🚨 Doc. Adulterados", qtd_adulterado, help=f"{perc_adulterado:.1f}%
 
 st.markdown("---")
 
-# --- PASSO 5: VISUALIZAÇÃO GRÁFICA ---
-st.subheader("📊 Visualização Gráfica")
+# --- PASSO 5: TABELAS ---
+st.subheader("📋 Resumo Analítico")
 
 def criar_resumo(df, coluna, nome_index):
     if coluna not in df.columns: return pd.DataFrame()
@@ -199,56 +190,28 @@ def criar_resumo(df, coluna, nome_index):
     resumo = temp.value_counts().reset_index()
     resumo.columns = [nome_index, "Qtd"]
     total_loc = resumo["Qtd"].sum()
-    resumo["%"] = (resumo["Qtd"] / total_loc * 100) if total_loc > 0 else 0
+    resumo["%"] = (resumo["Qtd"] / total_loc) if total_loc > 0 else 0
     return resumo
 
-# 1. GRÁFICO DE CIMA: Volume por Tipo de Empresa
-st.write("### 🏢 Volume por Tipo de Empresa")
-if col_empresa in tabela_filtrada.columns and not tabela_filtrada.empty:
-    c_emp1, c_emp2 = st.columns([2, 1]) 
-    
-    with c_emp1:
-        df_pizza = tabela_filtrada[col_empresa].value_counts().reset_index()
-        df_pizza.columns = ['Tipo', 'Qtd']
-        fig_pizza = px.pie(df_pizza, values='Qtd', names='Tipo', hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
-        st.plotly_chart(fig_pizza, use_container_width=True)
-    
-    with c_emp2:
-        df_emp_table = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
-        st.dataframe(df_emp_table, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=100)}, hide_index=True, use_container_width=True)
-else:
-    st.warning(f"Coluna '{col_empresa}' não encontrada.")
+col_t1, col_t2 = st.columns(2)
+
+with col_t1:
+    st.write("**Volume por Tipo de Empresa**")
+    if col_empresa in tabela_filtrada.columns:
+        df_emp = criar_resumo(tabela_filtrada, col_empresa, "Tipo")
+        st.dataframe(df_emp, column_config={"%": st.column_config.ProgressColumn("Share", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
+
+with col_t2:
+    st.write("**Ranking de Divergências**")
+    if col_divergencia in tabela_filtrada.columns:
+        df_div = criar_resumo(tabela_filtrada, col_divergencia, "Motivo")
+        st.dataframe(df_div, column_config={"%": st.column_config.ProgressColumn("Impacto", format="%.1f%%", max_value=1)}, hide_index=True, use_container_width=True)
 
 st.markdown("---")
 
-# 2. GRÁFICO DE BAIXO: Volume por Tipo de Documento
-st.write("### 📑 Volume por Tipo de Documento")
-if col_documento in tabela_filtrada.columns and not tabela_filtrada.empty:
-    df_doc = tabela_filtrada[col_documento].value_counts().reset_index()
-    df_doc.columns = ['Documento', 'Qtd']
-    
-    total_docs = df_doc['Qtd'].sum()
-    df_doc['Porcentagem'] = (df_doc['Qtd'] / total_docs * 100).round(1).astype(str) + '%'
+# --- PASSO 6: GRÁFICOS ---
+st.subheader("📊 Visualização Gráfica")
 
-    fig_barras_doc = px.bar(
-        df_doc.head(10), 
-        x='Qtd', y='Documento', orientation='h',
-        color_discrete_sequence=['#0051CC'],
-        text='Qtd',
-        custom_data=['Porcentagem']
-    )
-    fig_barras_doc.update_traces(
-        textposition='outside',
-        hovertemplate="<b>%{y}</b><br>Qtd: %{x}<br>Share: %{customdata[0]}<extra></extra>"
-    )
-    fig_barras_doc.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white", height=400)
-    st.plotly_chart(fig_barras_doc, use_container_width=True)
-else:
-    st.info("Nenhum dado de documento encontrado.")
-
-st.markdown("---")
-
-# Evolução Diária
 st.write("**Evolução Diária**")
 if "Filtro_Data" in tabela_filtrada.columns and col_status in tabela_filtrada.columns and not tabela_filtrada.empty:
     df_chart = tabela_filtrada.copy()
@@ -264,6 +227,57 @@ if "Filtro_Data" in tabela_filtrada.columns and col_status in tabela_filtrada.co
         )
         fig_evolucao.update_layout(xaxis_title="Data", yaxis_title="Docs", plot_bgcolor="white", height=350)
         st.plotly_chart(fig_evolucao, use_container_width=True)
+    else:
+        st.info("Sem dados com data válida para o gráfico.")
+
+g1, g2 = st.columns(2)
+with g1:
+    st.write("**Distribuição Visual (Tipos)**")
+    if col_empresa in tabela_filtrada.columns and not tabela_filtrada.empty:
+        df_pizza = tabela_filtrada[col_empresa].value_counts().reset_index()
+        df_pizza.columns = ['Tipo', 'Qtd']
+        fig_pizza = px.pie(df_pizza, values='Qtd', names='Tipo', hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
+        st.plotly_chart(fig_pizza, use_container_width=True)
+
+with g2:
+    st.write("**Top Divergências (Passe o mouse para detalhes)**")
+    if col_divergencia in tabela_filtrada.columns and not tabela_filtrada.empty:
+        df_div_graph = tabela_filtrada[col_divergencia].fillna("").astype(str)
+        ignorar_grafico = ["", "nan", "None", "Não informado", "None"]
+        df_div_graph = df_div_graph[~df_div_graph.isin(ignorar_grafico)]
+        
+        df_counts = df_div_graph.value_counts().reset_index()
+        df_counts.columns = ['Motivo', 'Qtd']
+        
+        df_top10 = df_counts.head(10).copy()
+        total_divergencias = df_counts['Qtd'].sum()
+        df_top10['Porcentagem'] = (df_top10['Qtd'] / total_divergencias * 100).round(1).astype(str) + '%'
+        
+        if not df_top10.empty:
+            fig_barras = px.bar(
+                df_top10, 
+                x='Qtd', 
+                y='Motivo', 
+                orientation='h',
+                color_discrete_sequence=['#FF4B4B'],
+                custom_data=['Porcentagem'] 
+            )
+            
+            fig_barras.update_traces(
+                hovertemplate="<b>%{y}</b><br>Quantidade: %{x}<br>Impacto: %{customdata[0]}<extra></extra>"
+            )
+            
+            fig_barras.update_layout(
+                yaxis={'categoryorder':'total ascending'}, 
+                plot_bgcolor="white", 
+                xaxis_title="Quantidade",
+                height=450
+            )
+            st.plotly_chart(fig_barras, use_container_width=True)
+        else:
+            st.info("Nenhuma divergência encontrada.")
+
+st.markdown("---")
 
 # --- PASSO 7: BASE DETALHADA ---
 with st.expander("📂 Abrir Base de Dados Detalhada"):
