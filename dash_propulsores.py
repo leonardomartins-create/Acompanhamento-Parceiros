@@ -54,12 +54,11 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- FUNÇÃO: A "PENEIRA" (SUA IDEIA APLICADA) ---
+# --- FUNÇÃO: A "PENEIRA" ---
 def padronizar_planilha(df):
     """Filtra, renomeia e mantém apenas as colunas essenciais antes de juntar as planilhas."""
     mapa_colunas = {}
     
-    # 1. Varre e identifica as colunas originais ignorando acentos e espaços
     for col in df.columns:
         s = str(col)
         normalized = unicodedata.normalize('NFD', s)
@@ -76,12 +75,10 @@ def padronizar_planilha(df):
         elif "tipodeempresa" in clean_name or "tipopessoa" in clean_name: mapa_colunas[col] = "Tipo de Empresa"
         elif "datacriacao" in clean_name: mapa_colunas[col] = "Data Criação"
 
-    # 2. Renomeia e remove duplicatas acidentais
     df = df.loc[:, ~df.columns.duplicated()]
     df = df.rename(columns=mapa_colunas)
-    df = df.loc[:, ~df.columns.duplicated()] # Limpa de novo por segurança
+    df = df.loc[:, ~df.columns.duplicated()] 
     
-    # 3. Descarta todo o lixo e mantém só as cruciais
     colunas_oficiais = ["Semana", "Analista", "Link Análise", "Análise", "Tipo de Documento", "Divergências", "Nome Parceiro", "Tipo de Empresa", "Data Criação"]
     colunas_presentes = [c for c in colunas_oficiais if c in df.columns]
     
@@ -100,23 +97,28 @@ def carregar_dados_online():
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
-        # PENEIRA CADA PLANILHA ANTES DE JUNTAR
         df1 = padronizar_planilha(df1)
         df2 = padronizar_planilha(df2)
         
-        # AGORA O ENCAIXE FICA PERFEITO
         tabela_final = pd.concat([df1, df2], ignore_index=True)
         
-        # Remove lixo do final da planilha
         colunas_obrigatorias = ["Semana", "Analista", "Análise"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
             
-        # Parseia a data com precisão (As vazias vão virar NaT)
+        # --- TRATOR DE DATAS ---
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
-            tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
+            # Converte tudo pra texto, tira espaços extras
+            datas_texto = tabela_final[col_data].astype(str).str.strip()
+            # Corta a string no primeiro espaço e pega só a parte 0 (que é a data, jogando a hora fora)
+            datas_limpas = datas_texto.str.split(' ').str[0]
+            # Ignora as que estavam vazias de verdade
+            datas_limpas = datas_limpas.replace(['nan', 'None', ''], pd.NA)
+            
+            # Agora sim converte forçando o formato brasileiro (dia primeiro)
+            tabela_final[col_data] = pd.to_datetime(datas_limpas, dayfirst=True, errors='coerce')
             tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
         else:
             tabela_final["Filtro_Data"] = None
@@ -152,7 +154,6 @@ if not datas_validas.empty:
         
         st.sidebar.subheader("Seleção de Período")
         
-        # AGORA VEM DESMARCADO POR PADRÃO!
         incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=False)
         
         data_inicial, data_final = st.sidebar.date_input(
