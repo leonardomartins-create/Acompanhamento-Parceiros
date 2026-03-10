@@ -54,39 +54,38 @@ with col_titulo:
 
 st.markdown("---")
 
-# --- FUNÇÃO MÁGICA: ASPIRADOR DE DATAS (SIMPLIFICADA) ---
-def encontrar_e_mesclar_datas(df):
-    col_map = {}
-    cols_de_data_encontradas = []
+# --- FUNÇÃO: A "PENEIRA" (SUA IDEIA APLICADA) ---
+def padronizar_planilha(df):
+    """Filtra, renomeia e mantém apenas as colunas essenciais antes de juntar as planilhas."""
+    mapa_colunas = {}
     
+    # 1. Varre e identifica as colunas originais ignorando acentos e espaços
     for col in df.columns:
-        # Normalização simplificada para evitar erros de sintaxe
         s = str(col)
         normalized = unicodedata.normalize('NFD', s)
         clean_name = "".join([c for c in normalized if unicodedata.category(c) != 'Mn'])
         clean_name = clean_name.lower().replace(" ", "").strip()
         
-        if "nomeparceiro" in clean_name: col_map[col] = "Nome Parceiro"
-        elif "tipodeempresa" in clean_name: col_map[col] = "Tipo de Empresa"
-        elif "tipodedocumento" in clean_name: col_map[col] = "Tipo de Documento"
-        elif "analise" == clean_name: col_map[col] = "Análise"
-        elif "divergencias" in clean_name: col_map[col] = "Divergências"
-        
-        if "datacriacao" in clean_name:
-            cols_de_data_encontradas.append(col)
+        if "semana" in clean_name: mapa_colunas[col] = "Semana"
+        elif "analista" in clean_name: mapa_colunas[col] = "Analista"
+        elif "link" in clean_name: mapa_colunas[col] = "Link Análise"
+        elif clean_name == "analise": mapa_colunas[col] = "Análise"
+        elif "tipodedocumento" in clean_name: mapa_colunas[col] = "Tipo de Documento"
+        elif "divergencia" in clean_name: mapa_colunas[col] = "Divergências"
+        elif "nomeparceiro" in clean_name: mapa_colunas[col] = "Nome Parceiro"
+        elif "tipodeempresa" in clean_name or "tipopessoa" in clean_name: mapa_colunas[col] = "Tipo de Empresa"
+        elif "datacriacao" in clean_name: mapa_colunas[col] = "Data Criação"
 
-    df = df.rename(columns=col_map)
+    # 2. Renomeia e remove duplicatas acidentais
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.rename(columns=mapa_colunas)
+    df = df.loc[:, ~df.columns.duplicated()] # Limpa de novo por segurança
     
-    if cols_de_data_encontradas:
-        df["Data_Final_Mestre"] = pd.NaT
-        for col_data in cols_de_data_encontradas:
-            dates = pd.to_datetime(df[col_data], dayfirst=True, errors='coerce')
-            df["Data_Final_Mestre"] = df["Data_Final_Mestre"].fillna(dates)
-        df["Filtro_Data"] = df["Data_Final_Mestre"].dt.date
-    else:
-        df["Filtro_Data"] = None
-
-    return df
+    # 3. Descarta todo o lixo e mantém só as cruciais
+    colunas_oficiais = ["Semana", "Analista", "Link Análise", "Análise", "Tipo de Documento", "Divergências", "Nome Parceiro", "Tipo de Empresa", "Data Criação"]
+    colunas_presentes = [c for c in colunas_oficiais if c in df.columns]
+    
+    return df[colunas_presentes]
 
 # --- PASSO 1: CARREGAR DADOS ---
 url_planilha_1 = "https://docs.google.com/spreadsheets/d/1VvVWTAlmvQSQXyfv4sfBiag2K6g1DqnEea5a8HgB_Y0/edit?usp=sharing"
@@ -101,14 +100,26 @@ def carregar_dados_online():
         df1 = pd.read_csv(csv_url_1)
         df2 = pd.read_csv(csv_url_2)
         
-        tabela_final = pd.concat([df1, df2], ignore_index=True)
-        tabela_final = encontrar_e_mesclar_datas(tabela_final)
+        # PENEIRA CADA PLANILHA ANTES DE JUNTAR
+        df1 = padronizar_planilha(df1)
+        df2 = padronizar_planilha(df2)
         
-        # Limpeza Leve (Mantém linhas sem data se tiverem outros dados)
+        # AGORA O ENCAIXE FICA PERFEITO
+        tabela_final = pd.concat([df1, df2], ignore_index=True)
+        
+        # Remove lixo do final da planilha
         colunas_obrigatorias = ["Semana", "Analista", "Análise"]
         cols_presentes = [c for c in colunas_obrigatorias if c in tabela_final.columns]
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
+            
+        # Parseia a data com precisão (As vazias vão virar NaT)
+        col_data = "Data Criação"
+        if col_data in tabela_final.columns:
+            tabela_final[col_data] = pd.to_datetime(tabela_final[col_data], dayfirst=True, errors='coerce')
+            tabela_final["Filtro_Data"] = tabela_final[col_data].dt.date
+        else:
+            tabela_final["Filtro_Data"] = None
             
         return tabela_final
     except Exception as e:
@@ -137,11 +148,12 @@ if not datas_validas.empty:
     try:
         min_data_real = datas_validas.min()
         max_data_real = datas_validas.max()
-        # Força o calendário até o fim de 2026 para permitir seleção futura
         limite_calendario = date(2026, 12, 31)
         
         st.sidebar.subheader("Seleção de Período")
-        incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=True)
+        
+        # AGORA VEM DESMARCADO POR PADRÃO!
+        incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=False)
         
         data_inicial, data_final = st.sidebar.date_input(
             "Selecione o intervalo",
@@ -247,7 +259,7 @@ with col_t2:
 
 st.markdown("---")
 
-# --- PASSO 6: GRÁFICOS (VISUAL MELHORADO + SLIDER + RÓTULOS) ---
+# --- PASSO 6: GRÁFICOS ---
 st.subheader("📊 Visualização Gráfica")
 
 st.write("**Evolução Diária (Use o slider abaixo para dar Zoom 🔍)**")
@@ -265,7 +277,7 @@ if "Filtro_Data" in tabela_filtrada.columns and col_status in tabela_filtrada.co
         )
         fig_evolucao.update_layout(
             xaxis=dict(
-                rangeslider=dict(visible=True), # Slider de Zoom
+                rangeslider=dict(visible=True), 
                 type="date"
             ),
             plot_bgcolor="white", 
@@ -298,7 +310,6 @@ with g2:
         df_top10 = df_counts.head(10).copy()
         total_divergencias = df_counts['Qtd'].sum()
         
-        # Cria rótulo personalizado: "18% (42)"
         df_top10['Porcentagem'] = (df_top10['Qtd'] / total_divergencias * 100).round(1).astype(str) + '%'
         df_top10['Rotulo'] = "<b>" + df_top10['Porcentagem'] + "</b>" + " (" + df_top10['Qtd'].astype(str) + ")"
         
@@ -308,7 +319,7 @@ with g2:
                 x='Qtd', 
                 y='Motivo', 
                 orientation='h',
-                text='Rotulo', # <--- Texto na ponta da barra
+                text='Rotulo',
                 color_discrete_sequence=['#FF4B4B'],
                 custom_data=['Porcentagem', 'Qtd'] 
             )
