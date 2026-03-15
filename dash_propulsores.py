@@ -73,7 +73,7 @@ def padronizar_planilha(df):
         elif "divergencia" in clean_name: mapa_colunas[col] = "Divergências"
         elif "nomeparceiro" in clean_name: mapa_colunas[col] = "Nome Parceiro"
         elif "tipodeempresa" in clean_name or "tipopessoa" in clean_name: mapa_colunas[col] = "Tipo de Empresa"
-        elif "datacriacao" in clean_name: mapa_colunas[col] = "Data Criação"
+        elif "data" in clean_name: mapa_colunas[col] = "Data Criação"
 
     df = df.loc[:, ~df.columns.duplicated()]
     df = df.rename(columns=mapa_colunas)
@@ -108,17 +108,15 @@ def carregar_dados_online():
         if cols_presentes:
             tabela_final = tabela_final.dropna(subset=cols_presentes)
             
-        # 2. O MATA-DUPLICADAS (Resolve a diferença de contagem)
+        # 2. O MATA-DUPLICADAS
         if "Link Análise" in tabela_final.columns:
-            # Se a mesma URL foi colada duas vezes, ele apaga a cópia
             tabela_final = tabela_final.dropna(subset=["Link Análise"])
             tabela_final = tabela_final.drop_duplicates(subset=["Link Análise"])
             
-        # 3. TRATOR DE DATAS (Tira as horas indesejadas)
+        # 3. TRATOR DE DATAS
         col_data = "Data Criação"
         if col_data in tabela_final.columns:
             datas_texto = tabela_final[col_data].astype(str).str.strip()
-            # Corta a string no espaço e pega só a parte da data
             datas_limpas = datas_texto.str.split(' ').str[0]
             datas_limpas = datas_limpas.replace(['nan', 'None', ''], pd.NA)
             
@@ -158,9 +156,6 @@ if not datas_validas.empty:
         
         st.sidebar.subheader("Seleção de Período")
         
-        # AGORA VEM DESMARCADO POR PADRÃO! (Evita inflar números)
-        incluir_vazios = st.sidebar.checkbox("Incluir linhas com Data Vazia?", value=False)
-        
         data_inicial, data_final = st.sidebar.date_input(
             "Selecione o intervalo",
             value=(min_data_real, max_data_real),
@@ -168,18 +163,14 @@ if not datas_validas.empty:
             max_value=limite_calendario 
         )
         
-        if incluir_vazios:
-            mask_data = (
-                ((tabela_filtrada["Filtro_Data"] >= data_inicial) & (tabela_filtrada["Filtro_Data"] <= data_final)) | 
-                (tabela_filtrada["Filtro_Data"].isna())
-            )
-        else:
-            mask_data = (
-                (tabela_filtrada["Filtro_Data"].notna()) &
-                (tabela_filtrada["Filtro_Data"] >= data_inicial) & 
-                (tabela_filtrada["Filtro_Data"] <= data_final)
-            )
+        # Filtro estrito de data (sem o botão de incluir vazios)
+        mask_data = (
+            (tabela_filtrada["Filtro_Data"].notna()) &
+            (tabela_filtrada["Filtro_Data"] >= data_inicial) & 
+            (tabela_filtrada["Filtro_Data"] <= data_final)
+        )
         tabela_filtrada = tabela_filtrada.loc[mask_data]
+        
     except Exception as e:
         st.sidebar.warning(f"Erro no calendário: {e}")
 
